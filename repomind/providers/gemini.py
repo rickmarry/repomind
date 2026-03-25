@@ -1,4 +1,5 @@
 import os
+import sys
 
 from repomind.providers.base import BaseProvider, Message, ProviderError
 
@@ -20,14 +21,23 @@ class GeminiProvider(BaseProvider):
             self._client = genai.GenerativeModel("gemini-1.5-pro")
         return self._client
 
-    def complete(self, messages: list[Message], max_tokens: int) -> str:
+    def complete(self, messages: list[Message], max_tokens: int, stream: bool = True) -> str:
         try:
-            # Gemini takes a single string; build a labelled transcript
             transcript = "\n\n".join(
                 f"{'User' if m.role == 'user' else 'Assistant'}: {m.content}"
                 for m in messages
             )
-            response = self.client.generate_content(transcript)
-            return response.text
+            if stream:
+                output = []
+                response = self.client.generate_content(transcript, stream=True)
+                for chunk in response:
+                    text = chunk.text
+                    sys.stdout.write(text)
+                    sys.stdout.flush()
+                    output.append(text)
+                return "".join(output)
+            else:
+                response = self.client.generate_content(transcript)
+                return response.text
         except Exception as e:
             raise ProviderError(f"Gemini error: {e}") from e

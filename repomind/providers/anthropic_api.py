@@ -1,4 +1,5 @@
 import os
+import sys
 
 from repomind.providers.base import BaseProvider, Message, ProviderError
 
@@ -21,19 +22,32 @@ class AnthropicApiProvider(BaseProvider):
             self._client = Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
         return self._client
 
-    def complete(self, messages: list[Message], max_tokens: int) -> str:
+    def complete(self, messages: list[Message], max_tokens: int, stream: bool = True) -> str:
         import anthropic as anthropic_lib
 
         sdk_messages = [{"role": m.role, "content": m.content} for m in messages]
         model = self._select_model(messages[-1].content)
 
         try:
-            res = self.client.messages.create(
-                model=model,
-                max_tokens=max_tokens,
-                messages=sdk_messages,
-            )
-            return res.content[0].text
+            if stream:
+                output = []
+                with self.client.messages.stream(
+                    model=model,
+                    max_tokens=max_tokens,
+                    messages=sdk_messages,
+                ) as s:
+                    for chunk in s.text_stream:
+                        sys.stdout.write(chunk)
+                        sys.stdout.flush()
+                        output.append(chunk)
+                return "".join(output)
+            else:
+                res = self.client.messages.create(
+                    model=model,
+                    max_tokens=max_tokens,
+                    messages=sdk_messages,
+                )
+                return res.content[0].text
         except (anthropic_lib.RateLimitError, anthropic_lib.APIStatusError) as e:
             raise ProviderError(f"Anthropic API error: {e}") from e
 

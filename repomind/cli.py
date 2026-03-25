@@ -17,7 +17,7 @@ app.add_typer(fallback_app, name="fallback")
 app.add_typer(history_app, name="history")
 
 
-def _call(prompt: str, max_tokens: int, via: str | None = None) -> str:
+def _call(prompt: str, max_tokens: int, via: str | None = None, stream: bool = True) -> str:
     """Build message list from history + current prompt, then walk the chain."""
     if via and via not in REGISTRY:
         print(f"[red]Unknown provider '{via}'. Valid: {list(REGISTRY.keys())}[/red]")
@@ -26,13 +26,14 @@ def _call(prompt: str, max_tokens: int, via: str | None = None) -> str:
     history = read_history()
     messages = [Message(role=m["role"], content=m["content"]) for m in history]
     messages.append(Message(role="user", content=prompt))
-    return call_chain(messages=messages, max_tokens=max_tokens, chain=chain, via=via)
+    return call_chain(messages=messages, max_tokens=max_tokens, chain=chain, via=via, stream=stream)
 
 
 def compress_context(text):
     return _call(
         prompt=f"Summarize this codebase context:\n\n{text}",
         max_tokens=800,
+        stream=False,
     )
 
 
@@ -74,10 +75,9 @@ TASK:
 {prompt}
 """
 
-    output = _call(prompt=full_prompt, max_tokens=1200, via=via)
-
     print("\n[cyan]AI:[/cyan]\n")
-    print(output)
+    output = _call(prompt=full_prompt, max_tokens=1200, via=via)
+    print()
 
     append_history("user", prompt)
     append_history("assistant", output)
@@ -101,8 +101,7 @@ Task:
 """
 
     output = _call(prompt=full_prompt, max_tokens=1200)
-
-    print(output)
+    print()
     log("PLAN", output)
     write(DEC, output)
     append_history("user", task)
@@ -139,8 +138,7 @@ Task:
 """
 
     output = _call(prompt=full_prompt, max_tokens=1200)
-
-    print(output)
+    print()
     log("EXEC", output)
     append_history("user", task)
     append_history("assistant", output)
