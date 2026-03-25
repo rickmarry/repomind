@@ -2,9 +2,13 @@ import shutil
 import subprocess
 import sys
 
+from rich.console import Console
+
 from repomind.providers.base import BaseProvider, Message, ProviderError
 
 _RATE_LIMIT_PHRASES = ("rate limit", "too many requests", "429")
+
+_console = Console()
 
 
 class ClaudeCliProvider(BaseProvider):
@@ -19,27 +23,27 @@ class ClaudeCliProvider(BaseProvider):
             for m in messages
         )
 
-        process = subprocess.Popen(
-            ["claude", "-p", transcript],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-        )
-
-        chunks = []
-        for chunk in process.stdout:
-            chunks.append(chunk)
-            if stream:
-                sys.stdout.write(chunk)
+        if stream:
+            with _console.status("[dim]thinking...[/dim]", spinner="dots"):
+                result = subprocess.run(
+                    ["claude", "-p", transcript],
+                    capture_output=True,
+                    text=True,
+                )
+            if result.returncode == 0:
+                sys.stdout.write(result.stdout)
                 sys.stdout.flush()
+                return result.stdout
+        else:
+            result = subprocess.run(
+                ["claude", "-p", transcript],
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode == 0:
+                return result.stdout
 
-        process.wait()
-
-        if process.returncode != 0:
-            stderr = process.stderr.read()
-            stderr_lower = stderr.lower()
-            if any(phrase in stderr_lower for phrase in _RATE_LIMIT_PHRASES):
-                raise ProviderError(f"claude CLI rate limited: {stderr.strip()}")
-            raise ProviderError(f"claude CLI exit {process.returncode}: {stderr.strip()}")
-
-        return "".join(chunks)
+        stderr_lower = result.stderr.lower()
+        if any(phrase in stderr_lower for phrase in _RATE_LIMIT_PHRASES):
+            raise ProviderError(f"claude CLI rate limited: {result.stderr.strip()}")
+        raise ProviderError(f"claude CLI exit {result.returncode}: {result.stderr.strip()}")

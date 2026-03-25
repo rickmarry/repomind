@@ -44,6 +44,8 @@ def call_chain(
             continue
 
         try:
+            if stream:
+                print(f"[dim]via {name}[/dim]")
             return provider.complete(messages, max_tokens, stream=stream)
         except ProviderError as e:
             errors.append(f"{name}: {e}")
