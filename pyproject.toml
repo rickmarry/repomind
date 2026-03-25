@@ -8,6 +8,11 @@ dependencies = [
   "rich"
 ]
 
+[project.optional-dependencies]
+openai = ["openai"]
+gemini = ["google-generativeai"]
+all = ["openai", "google-generativeai"]
+
 [project.scripts]
 repomind = "repomind.cli:app"
 
