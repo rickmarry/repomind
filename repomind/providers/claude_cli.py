@@ -1,5 +1,6 @@
 import shutil
 import subprocess
+import sys
 
 from repomind.providers.base import BaseProvider, Message, ProviderError
 
@@ -12,24 +13,33 @@ class ClaudeCliProvider(BaseProvider):
     def is_available(self) -> bool:
         return shutil.which("claude") is not None
 
-    def complete(self, messages: list[Message], max_tokens: int) -> str:
-        # Build a transcript so the full history reaches the CLI
+    def complete(self, messages: list[Message], max_tokens: int, stream: bool = True) -> str:
         transcript = "\n\n".join(
             f"{'User' if m.role == 'user' else 'Assistant'}: {m.content}"
             for m in messages
         )
 
-        result = subprocess.run(
+        process = subprocess.Popen(
             ["claude", "-p", transcript],
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
         )
 
-        if result.returncode == 0:
-            return result.stdout
+        chunks = []
+        for chunk in process.stdout:
+            chunks.append(chunk)
+            if stream:
+                sys.stdout.write(chunk)
+                sys.stdout.flush()
 
-        stderr_lower = result.stderr.lower()
-        if any(phrase in stderr_lower for phrase in _RATE_LIMIT_PHRASES):
-            raise ProviderError(f"claude CLI rate limited: {result.stderr.strip()}")
+        process.wait()
 
-        raise ProviderError(f"claude CLI exit {result.returncode}: {result.stderr.strip()}")
+        if process.returncode != 0:
+            stderr = process.stderr.read()
+            stderr_lower = stderr.lower()
+            if any(phrase in stderr_lower for phrase in _RATE_LIMIT_PHRASES):
+                raise ProviderError(f"claude CLI rate limited: {stderr.strip()}")
+            raise ProviderError(f"claude CLI exit {process.returncode}: {stderr.strip()}")
+
+        return "".join(chunks)

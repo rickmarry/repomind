@@ -21,6 +21,7 @@ def call_chain(
     max_tokens: int,
     chain: list[str],
     via: str | None = None,
+    stream: bool = True,
 ) -> str:
     """
     Walk the provider chain and return the first successful response.
@@ -43,7 +44,7 @@ def call_chain(
             continue
 
         try:
-            return provider.complete(messages, max_tokens)
+            return provider.complete(messages, max_tokens, stream=stream)
         except ProviderError as e:
             errors.append(f"{name}: {e}")
             has_next = any(
