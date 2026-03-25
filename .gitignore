@@ -1,0 +1,41 @@
+# -----------------------------
+# Python
+# -----------------------------
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# virtual environments
+.venv/
+venv/
+ENV/
+
+# build / packaging
+build/
+dist/
+*.egg-info/
+repomind.egg-info/
+
+# -----------------------------
+# REPOMIND runtime state (IMPORTANT)
+# -----------------------------
+.ai/
+.env
+
+# logs
+*.log
+
+# -----------------------------
+# IDEs
+# -----------------------------
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# -----------------------------
+# OS files
+# -----------------------------
+.DS_Store
+Thumbs.db

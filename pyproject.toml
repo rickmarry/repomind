@@ -1,0 +1,16 @@
+[project]
+name = "repomind"
+version = "0.2.0"
+description = "AI Workspace System - per-project AI memory CLI"
+dependencies = [
+  "anthropic",
+  "typer",
+  "rich"
+]
+
+[project.scripts]
+repomind = "repomind.cli:app"
+
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
