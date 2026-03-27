@@ -19,7 +19,7 @@ REGISTRY: dict[str, type[BaseProvider]] = {
 
 DEFAULT_CHAIN = ["claude_cli", "anthropic_api", "openai", "gemini"]
 
-_console = Console()
+_console = Console(stderr=True)
 
 
 def call_chain(
