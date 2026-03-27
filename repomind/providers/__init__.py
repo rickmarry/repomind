@@ -49,12 +49,13 @@ def call_chain(
             return provider.complete(messages, max_tokens, stream=stream)
         except ProviderError as e:
             errors.append(f"{name}: {e}")
+            reason = "rate limited" if "rate limit" in str(e).lower() else "unavailable"
             has_next = any(
                 REGISTRY.get(n) and REGISTRY[n]().is_available()
                 for n in providers_to_try[i + 1:]
             )
             if has_next:
-                print(f"[yellow]{name} unavailable, trying next provider...[/yellow]")
+                print(f"[yellow]{name} {reason}, trying next provider...[/yellow]")
 
     raise RuntimeError(
         "All providers exhausted.\n" + "\n".join(f"  - {e}" for e in errors)
