@@ -1,4 +1,7 @@
+import sys
+
 from rich import print
+from rich.console import Console
 
 from repomind.providers.base import BaseProvider, Message, ProviderError
 from repomind.providers.claude_cli import ClaudeCliProvider
@@ -14,6 +17,8 @@ REGISTRY: dict[str, type[BaseProvider]] = {
 }
 
 DEFAULT_CHAIN = ["claude_cli", "anthropic_api", "openai", "gemini"]
+
+_console = Console()
 
 
 def call_chain(
@@ -45,8 +50,33 @@ def call_chain(
 
         try:
             if stream:
-                print(f"[dim]via {name}[/dim]")
-            return provider.complete(messages, max_tokens, stream=stream)
+                # Print provider name immediately, bypassing rich buffering
+                sys.stdout.write(f"\x1b[2mvia {name}\x1b[0m\n")
+                sys.stdout.flush()
+
+                # Spinner runs until the first chunk arrives
+                status = _console.status("[dim]thinking...[/dim]", spinner="dots")
+                status.start()
+                _orig_write = sys.stdout.write
+                _stopped = [False]
+
+                def _intercept(text, _orig=_orig_write, _status=status, _stopped=_stopped):
+                    if not _stopped[0]:
+                        _stopped[0] = True
+                        _status.stop()
+                        sys.stdout.write = _orig
+                    return _orig(text)
+
+                sys.stdout.write = _intercept
+                try:
+                    return provider.complete(messages, max_tokens, stream=True)
+                finally:
+                    # Always clean up — covers errors and empty responses
+                    if not _stopped[0]:
+                        status.stop()
+                    sys.stdout.write = _orig_write
+            else:
+                return provider.complete(messages, max_tokens, stream=False)
         except ProviderError as e:
             errors.append(f"{name}: {e}")
             reason = "rate limited" if "rate limit" in str(e).lower() else "unavailable"
