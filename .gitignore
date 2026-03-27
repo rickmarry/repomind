@@ -21,7 +21,13 @@ repomind.egg-info/
 # REPOMIND runtime state (IMPORTANT)
 # -----------------------------
 .ai/
+.repomind/
 .env
+
+# -----------------------------
+# Local tool settings
+# -----------------------------
+.claude/
 
 # logs
 *.log
