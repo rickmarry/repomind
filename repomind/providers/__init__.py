@@ -1,4 +1,5 @@
 import sys
+import threading
 
 from rich import print
 from rich.console import Console
@@ -54,26 +55,36 @@ def call_chain(
                 sys.stdout.write(f"\x1b[2mvia {name}\x1b[0m\n")
                 sys.stdout.flush()
 
-                # Spinner runs until the first chunk arrives
+                # Spinner runs until the first chunk arrives.
+                # We use a watcher thread to stop the spinner because the
+                # spinner's render thread also writes to sys.stdout — calling
+                # status.stop() from inside sys.stdout.write would cause the
+                # render thread to join() itself, hanging forever.
                 status = _console.status("[dim]thinking...[/dim]", spinner="dots")
                 status.start()
                 _orig_write = sys.stdout.write
-                _stopped = [False]
+                _first_chunk = threading.Event()
 
-                def _intercept(text, _orig=_orig_write, _status=status, _stopped=_stopped):
-                    if not _stopped[0]:
-                        _stopped[0] = True
-                        _status.stop()
+                def _intercept(text, _orig=_orig_write, _event=_first_chunk):
+                    if not _event.is_set():
+                        _event.set()
                         sys.stdout.write = _orig
                     return _orig(text)
 
                 sys.stdout.write = _intercept
+
+                def _stopper(_event=_first_chunk, _status=status):
+                    _event.wait()
+                    _status.stop()
+
+                _stop_thread = threading.Thread(target=_stopper, daemon=True)
+                _stop_thread.start()
                 try:
                     return provider.complete(messages, max_tokens, stream=True)
                 finally:
-                    # Always clean up — covers errors and empty responses
-                    if not _stopped[0]:
-                        status.stop()
+                    _first_chunk.set()  # unblock stopper if provider wrote nothing
+                    _stop_thread.join(timeout=1)
+                    status.stop()  # no-op if already stopped
                     sys.stdout.write = _orig_write
             else:
                 return provider.complete(messages, max_tokens, stream=False)
