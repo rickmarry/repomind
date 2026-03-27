@@ -2,13 +2,10 @@ import shutil
 import subprocess
 import sys
 
-from rich.console import Console
-
 from repomind.providers.base import BaseProvider, Message, ProviderError
 
 _RATE_LIMIT_PHRASES = ("rate limit", "too many requests", "429")
-
-_console = Console()
+_ERROR_PHRASES = _RATE_LIMIT_PHRASES + ("credit", "quota", "exceeded", "usage limit")
 
 
 class ClaudeCliProvider(BaseProvider):
@@ -24,26 +21,41 @@ class ClaudeCliProvider(BaseProvider):
         )
 
         if stream:
-            with _console.status("[dim]thinking...[/dim]", spinner="dots"):
-                result = subprocess.run(
-                    ["claude", "-p", transcript],
-                    capture_output=True,
-                    text=True,
-                )
-            if result.returncode == 0:
-                sys.stdout.write(result.stdout)
+            proc = subprocess.Popen(
+                ["claude", "-p", transcript],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            lines = []
+            for line in proc.stdout:
+                sys.stdout.write(line)
                 sys.stdout.flush()
-                return result.stdout
+                lines.append(line)
+            proc.wait()
+            output = "".join(lines)
+            stderr = proc.stderr.read()
+            returncode = proc.returncode
         else:
             result = subprocess.run(
                 ["claude", "-p", transcript],
                 capture_output=True,
                 text=True,
             )
-            if result.returncode == 0:
-                return result.stdout
+            output = result.stdout
+            stderr = result.stderr
+            returncode = result.returncode
 
-        stderr_lower = result.stderr.lower()
+        # Claude CLI sometimes exits 0 but writes an error to stdout
+        if returncode == 0:
+            output_lower = output.lower()
+            if any(phrase in output_lower for phrase in _ERROR_PHRASES):
+                if any(phrase in output_lower for phrase in _RATE_LIMIT_PHRASES):
+                    raise ProviderError(f"claude CLI rate limited: {output.strip()}")
+                raise ProviderError(f"claude CLI error in output: {output.strip()}")
+            return output
+
+        stderr_lower = stderr.lower()
         if any(phrase in stderr_lower for phrase in _RATE_LIMIT_PHRASES):
-            raise ProviderError(f"claude CLI rate limited: {result.stderr.strip()}")
-        raise ProviderError(f"claude CLI exit {result.returncode}: {result.stderr.strip()}")
+            raise ProviderError(f"claude CLI rate limited: {stderr.strip()}")
+        raise ProviderError(f"claude CLI exit {returncode}: {stderr.strip()}")
