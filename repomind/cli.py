@@ -1,6 +1,7 @@
 import typer
 from rich import print
 
+from repomind import __version__
 from repomind.core import (
     ensure, read, write, log, git_diff,
     read_config, write_config, read_chain, write_chain,
@@ -10,11 +11,24 @@ from repomind.core import (
 from repomind.providers import call_chain, REGISTRY
 from repomind.providers.base import Message
 
+def _version_callback(value: bool):
+    if value:
+        print(f"repomind {__version__}")
+        raise typer.Exit()
+
+
 app = typer.Typer()
 fallback_app = typer.Typer(help="Manage the provider fallback chain.")
 history_app = typer.Typer(help="Manage conversation history.")
 app.add_typer(fallback_app, name="fallback")
 app.add_typer(history_app, name="history")
+
+
+@app.callback()
+def main(
+    version: bool = typer.Option(None, "--version", "-v", callback=_version_callback, is_eager=True, help="Show version and exit."),
+):
+    pass
 
 
 def _call(prompt: str, max_tokens: int, via: str | None = None, stream: bool = True) -> str:
