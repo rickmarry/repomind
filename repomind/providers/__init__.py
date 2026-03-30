@@ -1,9 +1,6 @@
 import sys
 import threading
 
-from rich import print
-from rich.console import Console
-
 from repomind.providers.base import BaseProvider, Message, ProviderError
 from repomind.providers.claude_cli import ClaudeCliProvider
 from repomind.providers.anthropic_api import AnthropicApiProvider
@@ -19,7 +16,18 @@ REGISTRY: dict[str, type[BaseProvider]] = {
 
 DEFAULT_CHAIN = ["claude_cli", "anthropic_api", "openai", "gemini"]
 
-_console = Console(stderr=True)
+
+def _run_spinner(done: threading.Event) -> None:
+    """Write an animated spinner to stderr until done is set, then clear the line."""
+    frames = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+    i = 0
+    while not done.wait(0.08):
+        sys.stderr.write(f"\r\x1b[2m{frames[i % len(frames)]} thinking...\x1b[0m")
+        sys.stderr.flush()
+        i += 1
+    # Clear spinner line so content starts from a clean position
+    sys.stderr.write("\r\x1b[2K")
+    sys.stderr.flush()
 
 
 def call_chain(
@@ -51,41 +59,24 @@ def call_chain(
 
         try:
             if stream:
-                # Print provider name immediately, bypassing rich buffering
-                sys.stdout.write(f"\x1b[2mvia {name}\x1b[0m\n")
-                sys.stdout.flush()
+                sys.stderr.write(f"\x1b[2mvia {name}\x1b[0m\n")
+                sys.stderr.flush()
 
-                # Spinner runs until the first chunk arrives.
-                # We use a watcher thread to stop the spinner because the
-                # spinner's render thread also writes to sys.stdout — calling
-                # status.stop() from inside sys.stdout.write would cause the
-                # render thread to join() itself, hanging forever.
-                status = _console.status("[dim]thinking...[/dim]", spinner="dots")
-                status.start()
-                _orig_write = sys.stdout.write
-                _first_chunk = threading.Event()
+                done = threading.Event()
+                spinner_thread = threading.Thread(target=_run_spinner, args=(done,), daemon=True)
+                spinner_thread.start()
 
-                def _intercept(text, _orig=_orig_write, _event=_first_chunk):
-                    if not _event.is_set():
-                        _event.set()
-                        sys.stdout.write = _orig
-                    return _orig(text)
+                def on_first_chunk(_done=done, _t=spinner_thread):
+                    """Stop spinner and wait for it to clear before first content writes."""
+                    _done.set()
+                    _t.join(timeout=0.5)
 
-                sys.stdout.write = _intercept
-
-                def _stopper(_event=_first_chunk, _status=status):
-                    _event.wait()
-                    _status.stop()
-
-                _stop_thread = threading.Thread(target=_stopper, daemon=True)
-                _stop_thread.start()
                 try:
-                    return provider.complete(messages, max_tokens, stream=True)
+                    return provider.complete(messages, max_tokens, stream=True, on_first_chunk=on_first_chunk)
                 finally:
-                    _first_chunk.set()  # unblock stopper if provider wrote nothing
-                    _stop_thread.join(timeout=1)
-                    status.stop()  # no-op if already stopped
-                    sys.stdout.write = _orig_write
+                    # Ensure spinner stops even if provider raised without calling on_first_chunk
+                    done.set()
+                    spinner_thread.join(timeout=1)
             else:
                 return provider.complete(messages, max_tokens, stream=False)
         except ProviderError as e:
@@ -96,7 +87,8 @@ def call_chain(
                 for n in providers_to_try[i + 1:]
             )
             if has_next:
-                print(f"[yellow]{name} {reason}, trying next provider...[/yellow]")
+                sys.stderr.write(f"\x1b[33m{name} {reason}, trying next provider...\x1b[0m\n")
+                sys.stderr.flush()
 
     raise RuntimeError(
         "All providers exhausted.\n" + "\n".join(f"  - {e}" for e in errors)

@@ -1,5 +1,6 @@
 import os
 import sys
+from typing import Callable
 
 from repomind.providers.base import BaseProvider, Message, ProviderError
 
@@ -21,7 +22,13 @@ class GeminiProvider(BaseProvider):
             self._client = genai.GenerativeModel("gemini-1.5-pro")
         return self._client
 
-    def complete(self, messages: list[Message], max_tokens: int, stream: bool = True) -> str:
+    def complete(
+        self,
+        messages: list[Message],
+        max_tokens: int,
+        stream: bool = True,
+        on_first_chunk: Callable | None = None,
+    ) -> str:
         try:
             transcript = "\n\n".join(
                 f"{'User' if m.role == 'user' else 'Assistant'}: {m.content}"
@@ -32,6 +39,9 @@ class GeminiProvider(BaseProvider):
                 response = self.client.generate_content(transcript, stream=True)
                 for chunk in response:
                     text = chunk.text
+                    if on_first_chunk:
+                        on_first_chunk()
+                        on_first_chunk = None
                     sys.stdout.write(text)
                     sys.stdout.flush()
                     output.append(text)

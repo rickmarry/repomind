@@ -3,6 +3,7 @@ import pty
 import shutil
 import subprocess
 import sys
+from typing import Callable
 
 from repomind.providers.base import BaseProvider, Message, ProviderError
 
@@ -16,14 +17,20 @@ class ClaudeCliProvider(BaseProvider):
     def is_available(self) -> bool:
         return shutil.which("claude") is not None
 
-    def complete(self, messages: list[Message], max_tokens: int, stream: bool = True) -> str:
+    def complete(
+        self,
+        messages: list[Message],
+        max_tokens: int,
+        stream: bool = True,
+        on_first_chunk: Callable | None = None,
+    ) -> str:
         transcript = "\n\n".join(
             f"{'User' if m.role == 'user' else 'Assistant'}: {m.content}"
             for m in messages
         )
 
         if stream:
-            output = self._stream_via_pty(["claude", "-p", transcript])
+            output = self._stream_via_pty(["claude", "-p", transcript], on_first_chunk=on_first_chunk)
         else:
             result = subprocess.run(
                 ["claude", "-p", transcript],
@@ -45,7 +52,7 @@ class ClaudeCliProvider(BaseProvider):
             raise ProviderError(f"claude CLI error in output: {output.strip()}")
         return output
 
-    def _stream_via_pty(self, cmd: list[str]) -> str:
+    def _stream_via_pty(self, cmd: list[str], on_first_chunk: Callable | None = None) -> str:
         """Run cmd under a PTY so the subprocess flushes output incrementally."""
         master_fd, slave_fd = pty.openpty()
         try:
@@ -68,6 +75,9 @@ class ClaudeCliProvider(BaseProvider):
                     break
                 if not data:
                     break
+                if on_first_chunk:
+                    on_first_chunk()
+                    on_first_chunk = None
                 text = data.decode("utf-8", errors="replace")
                 sys.stdout.write(text)
                 sys.stdout.flush()
