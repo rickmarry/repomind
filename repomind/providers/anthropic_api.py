@@ -1,5 +1,6 @@
 import os
 import sys
+from typing import Callable
 
 from repomind.providers.base import BaseProvider, Message, ProviderError
 
@@ -22,7 +23,13 @@ class AnthropicApiProvider(BaseProvider):
             self._client = Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
         return self._client
 
-    def complete(self, messages: list[Message], max_tokens: int, stream: bool = True) -> str:
+    def complete(
+        self,
+        messages: list[Message],
+        max_tokens: int,
+        stream: bool = True,
+        on_first_chunk: Callable | None = None,
+    ) -> str:
         import anthropic as anthropic_lib
 
         sdk_messages = [{"role": m.role, "content": m.content} for m in messages]
@@ -37,6 +44,9 @@ class AnthropicApiProvider(BaseProvider):
                     messages=sdk_messages,
                 ) as s:
                     for chunk in s.text_stream:
+                        if on_first_chunk:
+                            on_first_chunk()
+                            on_first_chunk = None
                         sys.stdout.write(chunk)
                         sys.stdout.flush()
                         output.append(chunk)

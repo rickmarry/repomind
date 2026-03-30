@@ -1,5 +1,6 @@
 import os
 import sys
+from typing import Callable
 
 from repomind.providers.base import BaseProvider, Message, ProviderError
 
@@ -20,7 +21,13 @@ class OpenAIProvider(BaseProvider):
             self._client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
         return self._client
 
-    def complete(self, messages: list[Message], max_tokens: int, stream: bool = True) -> str:
+    def complete(
+        self,
+        messages: list[Message],
+        max_tokens: int,
+        stream: bool = True,
+        on_first_chunk: Callable | None = None,
+    ) -> str:
         try:
             sdk_messages = [{"role": m.role, "content": m.content} for m in messages]
             if stream:
@@ -33,6 +40,9 @@ class OpenAIProvider(BaseProvider):
                 )
                 for chunk in response:
                     text = chunk.choices[0].delta.content or ""
+                    if on_first_chunk:
+                        on_first_chunk()
+                        on_first_chunk = None
                     sys.stdout.write(text)
                     sys.stdout.flush()
                     output.append(text)
