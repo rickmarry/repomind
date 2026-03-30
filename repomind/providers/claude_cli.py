@@ -30,21 +30,23 @@ class ClaudeCliProvider(BaseProvider):
         )
 
         if stream:
-            output = self._stream_via_pty(["claude", "-p", transcript], on_first_chunk=on_first_chunk)
-        else:
-            result = subprocess.run(
-                ["claude", "-p", transcript],
-                capture_output=True,
-                text=True,
-            )
-            output = result.stdout
-            if result.returncode != 0:
-                stderr_lower = result.stderr.lower()
-                if any(phrase in stderr_lower for phrase in _RATE_LIMIT_PHRASES):
-                    raise ProviderError(f"claude CLI rate limited: {result.stderr.strip()}")
-                raise ProviderError(f"claude CLI exit {result.returncode}: {result.stderr.strip()}")
+            return self._stream_via_pty(["claude", "-p", transcript], on_first_chunk=on_first_chunk)
 
-        # Claude CLI sometimes exits 0 but writes an error to stdout
+        result = subprocess.run(
+            ["claude", "-p", transcript],
+            capture_output=True,
+            text=True,
+        )
+        output = result.stdout
+        if result.returncode != 0:
+            stderr_lower = result.stderr.lower()
+            if any(phrase in stderr_lower for phrase in _RATE_LIMIT_PHRASES):
+                raise ProviderError(f"claude CLI rate limited: {result.stderr.strip()}")
+            raise ProviderError(f"claude CLI exit {result.returncode}: {result.stderr.strip()}")
+        return self._check_output(output)
+
+    def _check_output(self, output: str) -> str:
+        """Raise ProviderError if output contains an error phrase, else return it."""
         output_lower = output.lower()
         if any(phrase in output_lower for phrase in _ERROR_PHRASES):
             if any(phrase in output_lower for phrase in _RATE_LIMIT_PHRASES):
@@ -53,7 +55,11 @@ class ClaudeCliProvider(BaseProvider):
         return output
 
     def _stream_via_pty(self, cmd: list[str], on_first_chunk: Callable | None = None) -> str:
-        """Run cmd under a PTY so the subprocess flushes output incrementally."""
+        """Run cmd under a PTY, buffer all output, check for errors before writing to stdout.
+
+        Since `claude -p` does not flush incrementally, buffering has no UX cost and
+        prevents error text from leaking to stdout before the fallback chain can react.
+        """
         master_fd, slave_fd = pty.openpty()
         try:
             proc = subprocess.Popen(
@@ -75,13 +81,7 @@ class ClaudeCliProvider(BaseProvider):
                     break
                 if not data:
                     break
-                if on_first_chunk:
-                    on_first_chunk()
-                    on_first_chunk = None
-                text = data.decode("utf-8", errors="replace")
-                sys.stdout.write(text)
-                sys.stdout.flush()
-                chunks.append(text)
+                chunks.append(data.decode("utf-8", errors="replace"))
 
             proc.wait()
         finally:
@@ -89,4 +89,12 @@ class ClaudeCliProvider(BaseProvider):
             if slave_fd != -1:
                 os.close(slave_fd)
 
-        return "".join(chunks)
+        output = "".join(chunks)
+        # Check for errors before writing anything — this prevents error text from
+        # bleeding into stdout when we fall back to another provider.
+        output = self._check_output(output)
+        if on_first_chunk:
+            on_first_chunk()
+        sys.stdout.write(output)
+        sys.stdout.flush()
+        return output
